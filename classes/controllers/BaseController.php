@@ -1,14 +1,17 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/../View.php';
 
 abstract class BaseController
 {
     protected array $config;
+    protected View $view;
 
     public function __construct()
     {
         $this->config = require __DIR__ . '/../../config/config.php';
+        $this->view = new View(__DIR__ . '/../../views/');
     }
 
     protected function jsonResponse(array $data, int $statusCode = 200): void
@@ -83,5 +86,21 @@ abstract class BaseController
         }
 
         return true;
+    }
+
+    protected function view(string $viewName, array $data = []): void
+    {
+        try {
+            $html = $this->view->render($viewName, $data);
+            header('Content-Type: text/html');
+            echo $html;
+        } catch (Exception $e) {
+            $this->errorResponse('View rendering error: ' . $e->getMessage(), 500);
+        }
+    }
+
+    protected function renderView(string $viewName, array $data = []): string
+    {
+        return $this->view->render($viewName, $data);
     }
 }
