@@ -1,5 +1,5 @@
 # Existing ignores
-template/*
+template
 
 # Environment files - NEVER commit these
 .env
