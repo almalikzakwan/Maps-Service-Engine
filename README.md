@@ -1,233 +1,425 @@
-# Maps Service Engine - Project Structure Guide
+# Maps Service Engine
 
-## Current Project Structure
+A powerful PHP-based mapping service that provides tile serving, coordinate conversion, and realistic GeoJSON generation with Malaysian geographic features.
+
+[![PHP Version](https://img.shields.io/badge/PHP-8.0%2B-blue.svg)](https://php.net/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![OpenStreetMap](https://img.shields.io/badge/Tiles-OpenStreetMap-orange.svg)](https://www.openstreetmap.org/)
+
+## 🚀 Features
+
+- **Tile Serving**: Proxy and serve map tiles from OpenStreetMap
+- **Coordinate Conversion**: Convert between latitude/longitude and tile coordinates
+- **GeoJSON Generation**: Generate realistic geographic features with Malaysian names
+- **Interactive Map**: Web-based Leaflet.js interface with real-time controls
+- **RESTful API**: Clean API endpoints with comprehensive error handling
+- **CORS Support**: Cross-origin resource sharing for web applications
+
+## 📁 Project Structure
 
 ```
 maps-service-engine/
-├── public/
-│   └── index.php                    # Main entry point with routing and error handling
-├── config/
-│   ├── config.php                   # Configuration settings (tile cache, CORS, etc.)
-│   └── routes.php                   # Route definitions
-├── classes/
-│   ├── Router.php                   # Route management with pattern matching
-│   ├── Map.php                      # Core Map class with tile operations
-│   ├── View.php                     # View rendering system
-│   └── controllers/
-│       ├── BaseController.php       # Base controller with common methods
-│       ├── TileController.php       # Tile-related requests (implemented)
-│       ├── CoordinateController.php # Coordinate conversions (implemented)
-│       ├── InfoController.php       # API info and health (implemented)
-│       ├── MapController.php        # Map interface controller (implemented)
-│       ├── DataController.php       # Data properties (route defined, controller missing)
-│       ├── FilterController.php     # Filtering (route defined, controller missing)
-│       └── ExternalController.php   # External data sources (route defined, controller missing)
-├── views/
-│   ├── layout.php                   # Main HTML layout template
-│   ├── welcome.php                  # API welcome page
-│   └── maps/
-│       └── index.php                # Interactive map interface
-├── template/                        # Ignored directory (per .gitignore)
-├── .gitignore                       # Git ignore rules
-└── README.md                        # Project documentation
+├── 📂 public/                          # Web server document root
+│   └── index.php                       # Main entry point with routing
+├── 📂 config/                          # Configuration files
+│   ├── config.php                      # System settings
+│   └── routes.php                      # Route definitions
+├── 📂 classes/                         # Core application classes
+│   ├── Router.php                      # Advanced routing with pattern matching
+│   ├── Map.php                         # Core mapping operations
+│   ├── View.php                        # Template rendering system
+│   └── 📂 controllers/                 # MVC Controllers
+│       ├── BaseController.php          # Base controller with common methods
+│       ├── TileController.php          # Tile serving operations
+│       ├── CoordinateController.php    # Coordinate conversions
+│       ├── GeoController.php           # GeoJSON feature generation
+│       ├── InfoController.php          # API info and health checks
+│       └── MapController.php           # Interactive map interface
+├── 📂 views/                           # Template files
+│   ├── layout.php                      # Base HTML layout
+│   ├── welcome.php                     # API welcome page
+│   └── 📂 maps/
+│       └── index.php                   # Interactive map interface
+├── 📂 template/                        # Ignored template directory
+├── .gitignore                          # Git ignore rules
+└── README.md                           # Project documentation
 ```
 
-## Implemented Features
+## 🛠️ Installation & Setup
 
-### ✅ Core Routing System
-- **Router.php**: Advanced routing with pattern matching (`{parameter}` support)
-- **Route Resolution**: Automatic parameter extraction and controller dispatch
-- **Error Handling**: Comprehensive exception handling with JSON responses
-- **CORS Support**: Cross-origin resource sharing enabled
+### Prerequisites
 
-### ✅ Tile Management (TileController)
-- `GET /tiles/{z}/{x}/{y}` - Fetch and serve map tiles
-- `GET /tiles/{z}/{x}/{y}.png` - PNG tile format
-- `GET /tiles/{z}/{x}/{y}.jpg` - JPG tile format
-- Tile validation and boundary checking
-- Caching headers for performance
+- PHP 8.0 or higher
+- cURL extension enabled
+- Web server (Apache/Nginx)
 
-### ✅ Coordinate Operations (CoordinateController)
-- `GET /convert/latlng-to-tile` - Convert lat/lng to tile coordinates
-- `GET /convert/tile-to-latlng` - Convert tile coordinates to lat/lng
-- Parameter validation for coordinates and zoom levels
-- Support for multiple input formats (lat/lng, lon/lng, z/zoom)
+### Installation Steps
 
-### ✅ Information & Health (InfoController)
-- `GET /` - API welcome page with route documentation
-- `GET /health` - System health check
-- `GET /api/info` - API documentation
-- `GET /dashboard` - Dashboard view (route available)
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/yourusername/maps-service-engine.git
+   cd maps-service-engine
+   ```
 
-### ✅ Map Interface (MapController)
-- `GET /maps` - Interactive Leaflet map interface
-- Integration with tile service
-- Responsive design with Tailwind CSS
+2. **Configure web server**
+   
+   **Apache (.htaccess)**
+   ```apache
+   RewriteEngine On
+   RewriteCond %{REQUEST_FILENAME} !-f
+   RewriteCond %{REQUEST_FILENAME} !-d
+   RewriteRule ^(.*)$ public/index.php [QSA,L]
+   ```
+   
+   **Nginx**
+   ```nginx
+   location / {
+       try_files $uri $uri/ /public/index.php?$query_string;
+   }
+   ```
 
-### ✅ View System
-- **View.php**: Template rendering engine
-- **Layout System**: Consistent HTML structure
-- **Data Binding**: Extract variables for view templates
-- **Tailwind CSS**: Modern responsive styling
-- **Leaflet Integration**: Interactive mapping library
+3. **Set permissions**
+   ```bash
+   chmod -R 755 public/
+   chmod -R 644 config/
+   ```
 
-## Available API Routes
+4. **Test installation**
+   ```bash
+   curl http://localhost/maps-service-engine/
+   ```
 
-### Tile Routes
-```
-GET /tiles/{z}/{x}/{y}      # Get tile image (PNG)
-GET /tiles/{z}/{x}/{y}.png  # Get tile as PNG
-GET /tiles/{z}/{x}/{y}.jpg  # Get tile as JPG
-```
+## 📡 API Reference
 
-### Coordinate Conversion Routes
-```
-GET /convert/latlng-to-tile?lat={lat}&lng={lng}&zoom={zoom}
-GET /convert/tile-to-latlng?x={x}&y={y}&z={z}
-```
+### Tile Operations
 
-### Information Routes
-```
-GET /                       # API welcome page
-GET /health                 # Health check
-GET /api/info              # API documentation
-GET /maps                  # Interactive map interface
+#### Get Map Tile
+```http
+GET /tiles/{z}/{x}/{y}
+GET /tiles/{z}/{x}/{y}.png
+GET /tiles/{z}/{x}/{y}.jpg
 ```
 
-### Planned Routes (Controllers Missing)
-```
-# Data Management
-GET /data/properties        # Get all properties
-POST /data/properties       # Add new property
-PUT /data/properties/{id}   # Update property
-DELETE /data/properties/{id} # Delete property
+**Parameters:**
+- `z` (int): Zoom level (0-18)
+- `x` (int): Tile X coordinate
+- `y` (int): Tile Y coordinate
 
-# Filtering
-GET /filter/tiles          # Filter tiles based on criteria
-POST /filter/apply         # Apply custom filters
+**Response:** Binary image data (PNG/JPG)
 
-# External Data
-GET /external/data         # Get external data
-POST /external/sync        # Sync with external sources
-```
-
-## Core Classes Documentation
-
-### Map.php
-**Key Methods:**
-- `getTileData(int $x, int $y, int $z)` - Fetch tile from OpenStreetMap
-- `getTileInfo(int $x, int $y, int $z)` - Get tile metadata and bounds
-- `convertCoordinatesToTiles(float $lat, float $lon, int $zoom)` - Coordinate conversion
-- `convertTilesToCoordinates(int $x, int $y, int $z)` - Reverse conversion
-- `isValidTile(int $x, int $y, int $z)` - Validation with zoom limits
-
-### BaseController.php
-**Common Methods:**
-- `jsonResponse()` - Standard JSON response formatting
-- `successResponse()` - Success response wrapper
-- `errorResponse()` - Error response with status codes
-- `validateCoordinates()` - Tile coordinate validation
-- `view()` - Render view templates
-- `getRequestData()` - Parse request data (GET/POST/PUT/DELETE)
-
-### Router.php
-**Features:**
-- Pattern matching with `{parameter}` syntax
-- HTTP method-based routing
-- Automatic parameter extraction
-- Controller and method dispatching
-- Comprehensive error handling
-
-## Configuration
-
-### config.php Settings
-```php
-'tile_cache_dir' => '/tmp/tile_cache/',     # Cache directory
-'tile_source' => 'https://tile.openstreetmap.org', # Tile provider
-'max_zoom' => 18,                           # Maximum zoom level
-'min_zoom' => 0,                            # Minimum zoom level
-'enable_cors' => true,                      # CORS support
-'cache_tiles' => true,                      # Enable tile caching
-'cache_ttl' => 3600,                        # Cache duration (1 hour)
-```
-
-## Usage Examples
-
-### Interactive Map Interface
-```
-GET /maps
-# Returns full HTML page with Leaflet map
-# Displays map centered on Kuala Terengganu with marker
-```
-
-### API Endpoint Usage
+**Example:**
 ```bash
-# Get a tile
-curl "https://your-domain.com/tiles/10/512/384"
+curl "http://localhost/tiles/16/50537/32369"
+```
 
-# Convert coordinates
-curl "https://your-domain.com/convert/latlng-to-tile?lat=5.329&lng=103.146&zoom=16"
+---
 
-# Response:
+### Coordinate Conversion
+
+#### Convert Lat/Lng to Tile
+```http
+GET /convert/latlng-to-tile?lat={lat}&lng={lng}&zoom={zoom}
+```
+
+**Parameters:**
+- `lat` (float): Latitude (-90 to 90)
+- `lng` (float): Longitude (-180 to 180)
+- `zoom` (int): Zoom level (0-18)
+
+**Response:**
+```json
 {
   "success": true,
   "message": "Success",
   "data": {
-    "input": {"lat": 5.329, "lng": 103.146, "zoom": 16},
-    "tile": {"x": 50537, "y": 32369, "z": 16}
+    "input": {
+      "lat": 5.329,
+      "lng": 103.146,
+      "zoom": 16
+    },
+    "tile": {
+      "x": 50537,
+      "y": 32369,
+      "z": 16
+    }
   }
 }
 ```
 
-## Implementation Status
+#### Convert Tile to Lat/Lng
+```http
+GET /convert/tile-to-latlng?x={x}&y={y}&z={z}
+```
 
-| Component | Status | Notes |
-|-----------|--------|-------|
-| Router System | ✅ Complete | Advanced pattern matching |
-| Tile Service | ✅ Complete | Full tile operations |
-| Coordinate Conversion | ✅ Complete | Bi-directional conversion |
-| View System | ✅ Complete | Template engine with layouts |
-| Map Interface | ✅ Complete | Interactive Leaflet map |
-| Info/Health Endpoints | ✅ Complete | API documentation |
-| Data Management | ❌ Missing | Controllers not implemented |
-| Filtering System | ❌ Missing | Controllers not implemented |
-| External Data | ❌ Missing | Controllers not implemented |
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "input": {"x": 50537, "y": 32369, "z": 16},
+    "coordinates": {"lat": 5.329, "lng": 103.146}
+  }
+}
+```
 
-## Next Implementation Steps
+---
 
-### 1. Complete Missing Controllers
-- **DataController.php** - Implement property management endpoints
-- **FilterController.php** - Add tile filtering capabilities
-- **ExternalController.php** - External data source integration
+### GeoJSON Generation
 
-### 2. Enhanced Features
-- **Caching Layer** - Implement tile caching using config settings
-- **Authentication** - Add API key or JWT authentication
-- **Rate Limiting** - Prevent API abuse
-- **Database Integration** - For property and data management
-- **Logging System** - Request logging and monitoring
+#### Generate Multiple Layers
+```http
+POST /geo/generate/layers
+Content-Type: application/json
 
-### 3. Documentation & Testing
-- **API Documentation** - OpenAPI/Swagger specification
-- **Unit Tests** - Controller and method testing
-- **Integration Tests** - End-to-end API testing
-- **Performance Monitoring** - Response time and usage metrics
+{
+  "count": 10000,
+  "layers": 50,
+  "bounds": {
+    "north": 5.340,
+    "south": 5.320,
+    "east": 103.160,
+    "west": 103.140
+  }
+}
+```
 
-## Technical Architecture
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "layers": [
+      {
+        "type": "FeatureCollection",
+        "name": "Roads_Highway",
+        "id": 1,
+        "theme": "roads_highway",
+        "features": [...]
+      }
+    ],
+    "summary": {
+      "total_features": 10000,
+      "total_layers": 50,
+      "bounds": {...},
+      "generated_at": "2025-01-15T10:30:00Z"
+    }
+  }
+}
+```
 
-**Frontend:**
-- Tailwind CSS for responsive design
-- Leaflet.js for interactive mapping
-- Native PHP templating system
+#### Generate Single Layer
+```http
+POST /geo/generate/layer
+Content-Type: application/json
 
-**Backend:**
-- Pure PHP 8+ with strict typing
-- RESTful API architecture
-- MVC pattern implementation
-- Exception-based error handling
+{
+  "count": 1000,
+  "type": "LineString",
+  "bounds": {...}
+}
+```
 
-**External Services:**
-- OpenStreetMap tile server integration
-- cURL-based HTTP client for tile fetching
+---
 
-This architecture provides a solid foundation for a scalable mapping service with clean separation of concerns, comprehensive error handling, and extensible controller structure.
+### System Information
+
+#### API Welcome
+```http
+GET /
+```
+Returns HTML welcome page with API documentation.
+
+#### Health Check
+```http
+GET /health
+```
+
+#### Interactive Map
+```http
+GET /maps
+```
+Returns full HTML page with Leaflet.js interactive map.
+
+## 🎨 Interactive Map Interface
+
+The system includes a sophisticated web interface at `/maps` featuring:
+
+- **Real-time GeoJSON Generation**: Generate up to 500,000 features across 200 layers
+- **Layer Management**: Toggle individual layers on/off
+- **Themed Features**: Realistic Malaysian roads, buildings, and natural areas
+- **Performance Optimized**: Batch processing and optimized rendering
+- **Responsive Design**: Works on desktop and mobile devices
+
+### Map Controls
+
+- **Feature Count**: 1,000 - 500,000 features
+- **Layer Count**: 1 - 200 layers
+- **Generate Random**: Creates themed GeoJSON layers
+- **Clear All**: Removes all generated features
+- **Layer Toggles**: Show/hide individual layers
+
+## 🏗️ Architecture Overview
+
+### MVC Pattern Implementation
+
+```
+HTTP Request → Router → Controller → Model → View → HTTP Response
+```
+
+#### Core Components
+
+1. **Router** (`Router.php`): Advanced pattern matching with parameter extraction
+2. **Controllers**: Handle business logic and request processing
+3. **Map Model** (`Map.php`): Core mapping operations and coordinate calculations
+4. **View System** (`View.php`): Template rendering with layout inheritance
+
+#### Controller Responsibilities
+
+- **TileController**: Tile serving and caching
+- **CoordinateController**: Mathematical coordinate conversions
+- **GeoController**: Complex GeoJSON feature generation
+- **InfoController**: System information and health checks
+- **MapController**: Interactive web interface
+
+### Request Flow
+
+1. **Entry Point**: All requests processed by `public/index.php`
+2. **Routing**: Pattern matching against `config/routes.php`
+3. **Dispatch**: Controller method invocation with parameters
+4. **Processing**: Business logic execution
+5. **Response**: JSON API data or HTML views
+
+## 🔧 Configuration
+
+### System Settings (`config/config.php`)
+
+```php
+return [
+    'tile_cache_dir' => '/tmp/tile_cache/',
+    'tile_source' => 'https://tile.openstreetmap.org',
+    'max_zoom' => 18,
+    'min_zoom' => 0,
+    'enable_cors' => true,
+    'cache_tiles' => true,
+    'cache_ttl' => 3600, // 1 hour
+];
+```
+
+### Route Definitions (`config/routes.php`)
+
+Routes use pattern matching with parameter extraction:
+
+```php
+'GET /tiles/{z}/{x}/{y}' => 'TileController@getTile',
+'POST /geo/generate/layers' => 'GeoController@generateRandomFeatures',
+```
+
+## 🌍 GeoJSON Features
+
+The system generates realistic Malaysian geographic features:
+
+### Feature Types
+
+1. **Roads**
+   - Highway (Lebuhraya)
+   - Primary roads (Jalan Utama)
+   - Secondary roads
+   - Residential streets
+
+2. **Buildings**
+   - Residential apartments
+   - Commercial complexes
+   - Industrial facilities
+   - Office towers
+
+3. **Natural Features**
+   - Parks (Taman)
+   - Water bodies (Tasik, Sungai)
+   - Forests
+   - Agricultural areas
+
+### Malaysian Naming Convention
+
+- Streets: Jalan, Lorong, Persiaran, Lebuh
+- Areas: Kampung, Taman, Bandar, Desa
+- Buildings: Apartment, Plaza, Complex, Tower
+- Natural: Taman Botani, Sungai Klang, Tasik Titiwangsa
+
+## 🚦 Error Handling
+
+### HTTP Status Codes
+
+- `200`: Success
+- `400`: Bad Request (validation errors)
+- `404`: Not Found (invalid routes)
+- `500`: Internal Server Error
+
+### Error Response Format
+
+```json
+{
+  "error": true,
+  "message": "Error description",
+  "code": 400
+}
+```
+
+## 🔒 CORS Support
+
+Cross-Origin Resource Sharing is enabled by default:
+
+```php
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization');
+```
+
+## 📊 Performance Considerations
+
+- **Tile Caching**: Configurable cache TTL (default: 1 hour)
+- **Batch Processing**: Large GeoJSON generation uses batched processing
+- **Memory Management**: Optimized for large feature datasets
+- **Connection Pooling**: Efficient cURL operations for tile fetching
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/amazing-feature`
+3. Commit your changes: `git commit -m 'Add amazing feature'`
+4. Push to the branch: `git push origin feature/amazing-feature`
+5. Open a Pull Request
+
+## 📋 TODO / Roadmap
+
+- [ ] **Database Integration**: Property management with MySQL/PostgreSQL
+- [ ] **Authentication**: API key or JWT-based authentication
+- [ ] **Rate Limiting**: Request throttling and abuse prevention
+- [ ] **Tile Caching**: File-based tile cache implementation
+- [ ] **WebSocket Support**: Real-time map updates
+- [ ] **Docker Support**: Containerized deployment
+- [ ] **API Documentation**: OpenAPI/Swagger specification
+- [ ] **Unit Tests**: PHPUnit test suite
+- [ ] **Performance Monitoring**: Request logging and metrics
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- [OpenStreetMap](https://www.openstreetmap.org/) for tile data
+- [Leaflet.js](https://leafletjs.com/) for interactive mapping
+- [Tailwind CSS](https://tailwindcss.com/) for responsive design
+- Malaysian geographic naming conventions
+
+## 📞 Support
+
+For support and questions:
+
+- Create an [Issue](https://github.com/yourusername/maps-service-engine/issues)
+- Email: your.email@domain.com
+- Documentation: [Wiki](https://github.com/yourusername/maps-service-engine/wiki)
+
+---
+
+**Built with ❤️ for the mapping community**
