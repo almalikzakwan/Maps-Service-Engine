@@ -5,9 +5,25 @@ ob_start();
 <div class="flex-grow w-full relative">
     <!-- Custom Control Panel -->
     <div id="control-panel" class="absolute top-4 right-4 z-1000 bg-white rounded-lg shadow-lg p-4 max-w-sm">
-        <h3 class="text-lg font-semibold mb-3">GeoJSON Generator</h3>
+        <h3 class="text-lg font-semibold mb-3">Vector Map Controls</h3>
 
-        <div class="space-y-3">
+        <!-- Tile Type Selector -->
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Tile Type</label>
+            <div class="flex gap-2">
+                <button id="vector-btn" class="flex-1 bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700 transition">
+                    Vector Tiles
+                </button>
+                <button id="raster-btn" class="flex-1 bg-gray-600 text-white px-3 py-2 rounded text-sm hover:bg-gray-700 transition">
+                    Raster Tiles
+                </button>
+            </div>
+        </div>
+
+        <!-- GeoJSON Generator -->
+        <div class="space-y-3 border-t pt-3">
+            <h4 class="text-sm font-semibold">GeoJSON Generator</h4>
+            
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Features Count</label>
                 <input type="number" id="feature-count" value="100000" min="1000" max="500000"
@@ -22,8 +38,8 @@ ob_start();
 
             <div class="flex gap-2">
                 <button id="generate-btn"
-                    class="flex-1 bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 transition">
-                    Generate Random
+                    class="flex-1 bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 transition">
+                    Generate
                 </button>
                 <button id="clear-btn"
                     class="flex-1 bg-red-600 text-white px-4 py-2 rounded text-sm hover:bg-red-700 transition">
@@ -33,7 +49,7 @@ ob_start();
 
             <div id="generation-status" class="text-xs text-gray-600 hidden">
                 <div class="flex items-center">
-                    <div class="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600 mr-2"></div>
+                    <div class="animate-spin rounded-full h-3 w-3 border-b-2 border-green-600 mr-2"></div>
                     <span>Generating layers...</span>
                 </div>
             </div>
@@ -82,7 +98,7 @@ ob_start();
     }
 
     #control-panel {
-        width: 280px;
+        width: 300px;
         max-height: 600px;
         overflow-y: auto;
     }
@@ -90,37 +106,182 @@ ob_start();
     .z-1000 {
         z-index: 1000;
     }
+
+    /* Vector tile loading indicator */
+    .maplibre-ctrl-loading {
+        background-color: rgba(0, 0, 0, 0.1);
+    }
 </style>
 
+<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+
 <script>
-    class GeoJSONMapManager {
+    class VectorMapManager {
         constructor() {
-            this.map = null;
+            this.leafletMap = null;
+            this.vectorMap = null;
+            this.currentMapType = 'vector'; // 'vector' or 'raster'
             this.geoJsonLayers = new Map();
             this.layerGroup = null;
             this.colors = [
                 '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
                 '#DDA0DD', '#98D8C8', '#A8E6CF', '#FFD93D', '#6C5CE7'
             ];
-            this.initMap();
+            this.initMaps();
             this.bindEvents();
         }
 
-        initMap() {
-            // Initialize map
-            this.map = L.map('map').setView([5.329, 103.146], 16);
+        async initMaps() {
+            // Initialize vector map first
+            await this.initVectorMap();
+            this.showVectorMap();
+        }
 
-            // Add base tile layer
+        async initVectorMap() {
+            try {
+                // Fetch style from server
+                const styleResponse = await fetch('/style.json');
+                let style;
+                
+                if (styleResponse.ok) {
+                    style = await styleResponse.json();
+                } else {
+                    // Fallback style if server style fails
+                    style = this.getDefaultVectorStyle();
+                }
+
+                this.vectorMap = new maplibregl.Map({
+                    container: 'map',
+                    style: style,
+                    center: [103.146, 5.329], // Malaysia
+                    zoom: 10,
+                    maxZoom: 18
+                });
+
+                // Add navigation controls
+                this.vectorMap.addControl(new maplibregl.NavigationControl());
+                
+                // Add scale control
+                this.vectorMap.addControl(new maplibregl.ScaleControl());
+
+                // Wait for map to load
+                await new Promise((resolve) => {
+                    this.vectorMap.on('load', resolve);
+                });
+
+                console.log('Vector map initialized successfully');
+            } catch (error) {
+                console.error('Error initializing vector map:', error);
+                // Fallback to raster map
+                this.initRasterMap();
+                this.showRasterMap();
+            }
+        }
+
+        initRasterMap() {
+            this.leafletMap = L.map('map').setView([5.329, 103.146], 10);
+
+            // Add raster tile layer
             L.tileLayer('/tiles/{z}/{x}/{y}', {
                 attribution: '© OpenStreetMap contributors',
                 maxZoom: 18
-            }).addTo(this.map);
+            }).addTo(this.leafletMap);
 
             // Initialize layer group for generated features
-            this.layerGroup = L.layerGroup().addTo(this.map);
+            this.layerGroup = L.layerGroup().addTo(this.leafletMap);
+            
+            console.log('Raster map initialized successfully');
+        }
+
+        getDefaultVectorStyle() {
+            return {
+                "version": 8,
+                "name": "Basic Vector Style",
+                "sources": {
+                    "openmaptiles": {
+                        "type": "vector",
+                        "tiles": [window.location.origin + "/tiles/{z}/{x}/{y}.pbf"],
+                        "minzoom": 0,
+                        "maxzoom": 14
+                    }
+                },
+                "layers": [
+                    {
+                        "id": "background",
+                        "type": "background",
+                        "paint": {
+                            "background-color": "#f8f8f8"
+                        }
+                    },
+                    {
+                        "id": "water",
+                        "type": "fill",
+                        "source": "openmaptiles",
+                        "source-layer": "water",
+                        "paint": {
+                            "fill-color": "#a0c8f0"
+                        }
+                    },
+                    {
+                        "id": "landcover",
+                        "type": "fill",
+                        "source": "openmaptiles",
+                        "source-layer": "landcover",
+                        "paint": {
+                            "fill-color": "#d8e8c8"
+                        }
+                    },
+                    {
+                        "id": "roads",
+                        "type": "line",
+                        "source": "openmaptiles",
+                        "source-layer": "transportation",
+                        "paint": {
+                            "line-color": "#ffffff",
+                            "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1, 14, 4]
+                        }
+                    },
+                    {
+                        "id": "buildings",
+                        "type": "fill",
+                        "source": "openmaptiles",
+                        "source-layer": "building",
+                        "minzoom": 13,
+                        "paint": {
+                            "fill-color": "#e0e0e0",
+                            "fill-outline-color": "#cccccc"
+                        }
+                    },
+                    {
+                        "id": "place-labels",
+                        "type": "symbol",
+                        "source": "openmaptiles",
+                        "source-layer": "place",
+                        "layout": {
+                            "text-field": ["get", "name"],
+                            "text-font": ["Open Sans Regular"],
+                            "text-size": 12
+                        },
+                        "paint": {
+                            "text-color": "#333333"
+                        }
+                    }
+                ]
+            };
         }
 
         bindEvents() {
+            // Map type switcher
+            document.getElementById('vector-btn').addEventListener('click', () => {
+                this.switchToVector();
+            });
+
+            document.getElementById('raster-btn').addEventListener('click', () => {
+                this.switchToRaster();
+            });
+
+            // GeoJSON controls
             document.getElementById('generate-btn').addEventListener('click', () => {
                 this.generateRandomFeatures();
             });
@@ -130,26 +291,100 @@ ob_start();
             });
         }
 
+        async switchToVector() {
+            if (!this.vectorMap) {
+                await this.initVectorMap();
+            }
+            this.showVectorMap();
+            this.currentMapType = 'vector';
+            this.updateButtonStates();
+        }
+
+        switchToRaster() {
+            if (!this.leafletMap) {
+                this.initRasterMap();
+            }
+            this.showRasterMap();
+            this.currentMapType = 'raster';
+            this.updateButtonStates();
+        }
+
+        showVectorMap() {
+            if (this.leafletMap) {
+                document.getElementById('map').innerHTML = '';
+            }
+            
+            if (this.vectorMap) {
+                this.vectorMap.getContainer().style.display = 'block';
+                this.vectorMap.resize();
+            }
+        }
+
+        showRasterMap() {
+            if (this.vectorMap) {
+                this.vectorMap.getContainer().style.display = 'none';
+            }
+
+            if (!this.leafletMap) {
+                this.initRasterMap();
+            }
+        }
+
+        updateButtonStates() {
+            const vectorBtn = document.getElementById('vector-btn');
+            const rasterBtn = document.getElementById('raster-btn');
+
+            if (this.currentMapType === 'vector') {
+                vectorBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                vectorBtn.classList.remove('bg-gray-400');
+                rasterBtn.classList.add('bg-gray-400');
+                rasterBtn.classList.remove('bg-gray-600', 'hover:bg-gray-700');
+            } else {
+                rasterBtn.classList.add('bg-gray-600', 'hover:bg-gray-700');
+                rasterBtn.classList.remove('bg-gray-400');
+                vectorBtn.classList.add('bg-gray-400');
+                vectorBtn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+            }
+        }
+
         async generateRandomFeatures() {
             const featureCount = parseInt(document.getElementById('feature-count').value);
             const layerCount = parseInt(document.getElementById('layer-count').value);
 
-            // Show loading status
             this.showGenerationStatus(true);
 
             const startTime = Date.now();
 
             try {
-                // Get map bounds
-                const bounds = this.map.getBounds();
-                const boundsData = {
-                    north: bounds.getNorth(),
-                    south: bounds.getSouth(),
-                    east: bounds.getEast(),
-                    west: bounds.getWest()
-                };
+                // Get current bounds based on active map
+                let bounds;
+                if (this.currentMapType === 'vector' && this.vectorMap) {
+                    const mapBounds = this.vectorMap.getBounds();
+                    bounds = {
+                        north: mapBounds.getNorth(),
+                        south: mapBounds.getSouth(),
+                        east: mapBounds.getEast(),
+                        west: mapBounds.getWest()
+                    };
+                } else if (this.currentMapType === 'raster' && this.leafletMap) {
+                    const mapBounds = this.leafletMap.getBounds();
+                    bounds = {
+                        north: mapBounds.getNorth(),
+                        south: mapBounds.getSouth(),
+                        east: mapBounds.getEast(),
+                        west: mapBounds.getWest()
+                    };
+                } else {
+                    // Default bounds
+                    bounds = {
+                        north: 5.340,
+                        south: 5.320,
+                        east: 103.160,
+                        west: 103.140
+                    };
+                }
 
-                console.log('Generating features with bounds:', boundsData);
+                console.log('Generating features with bounds:', bounds);
 
                 const response = await fetch('/geo/generate/layers', {
                     method: 'POST',
@@ -159,7 +394,7 @@ ob_start();
                     body: JSON.stringify({
                         count: featureCount,
                         layers: layerCount,
-                        bounds: boundsData
+                        bounds: bounds
                     })
                 });
 
@@ -174,7 +409,11 @@ ob_start();
                 if (data.success && data.data && data.data.layers) {
                     console.log(`Received ${data.data.layers.length} layers from server`);
 
-                    await this.addLayersToMap(data.data.layers);
+                    if (this.currentMapType === 'vector') {
+                        await this.addLayersToVectorMap(data.data.layers);
+                    } else {
+                        await this.addLayersToRasterMap(data.data.layers);
+                    }
 
                     const endTime = Date.now();
                     const generationTime = ((endTime - startTime) / 1000).toFixed(2);
@@ -192,8 +431,122 @@ ob_start();
             }
         }
 
-        async addLayersToMap(layers) {
-            // Clear existing layers
+        async addLayersToVectorMap(layers) {
+            // Clear existing GeoJSON layers from vector map
+            this.clearVectorLayers();
+
+            const layerControlsContainer = document.getElementById('layer-controls');
+            layerControlsContainer.innerHTML = '';
+
+            let validLayersAdded = 0;
+
+            for (let i = 0; i < layers.length; i++) {
+                const layerData = layers[i];
+                const color = this.colors[i % this.colors.length];
+
+                try {
+                    if (!layerData.features || !Array.isArray(layerData.features) || layerData.features.length === 0) {
+                        console.warn('Layer has no valid features:', layerData.id || i);
+                        continue;
+                    }
+
+                    const layerId = `geojson-layer-${layerData.id || i}`;
+
+                    // Add source
+                    this.vectorMap.addSource(layerId, {
+                        type: 'geojson',
+                        data: layerData
+                    });
+
+                    // Add layers based on geometry types
+                    this.addVectorLayersByGeometry(layerId, layerData, color);
+
+                    validLayersAdded++;
+                    this.addLayerControl(layerData, color, true); // true for vector map
+
+                    // Process in batches
+                    if (i % 5 === 0) {
+                        await this.sleep(10);
+                    }
+                } catch (layerError) {
+                    console.error('Error processing vector layer:', layerData.id || i, layerError);
+                }
+            }
+
+            console.log(`Successfully added ${validLayersAdded} vector layers out of ${layers.length}`);
+            this.fitVectorMapToLayers();
+        }
+
+        addVectorLayersByGeometry(sourceId, layerData, color) {
+            // Analyze geometry types in the layer
+            const geometryTypes = new Set();
+            layerData.features.forEach(feature => {
+                if (feature.geometry && feature.geometry.type) {
+                    geometryTypes.add(feature.geometry.type);
+                }
+            });
+
+            // Add appropriate layers for each geometry type
+            geometryTypes.forEach(geomType => {
+                const layerId = `${sourceId}-${geomType.toLowerCase()}`;
+                
+                switch (geomType) {
+                    case 'Point':
+                        this.vectorMap.addLayer({
+                            id: layerId,
+                            type: 'circle',
+                            source: sourceId,
+                            filter: ['==', ['geometry-type'], 'Point'],
+                            paint: {
+                                'circle-color': color,
+                                'circle-radius': 4,
+                                'circle-opacity': 0.8
+                            }
+                        });
+                        break;
+                    
+                    case 'LineString':
+                    case 'MultiLineString':
+                        this.vectorMap.addLayer({
+                            id: layerId,
+                            type: 'line',
+                            source: sourceId,
+                            filter: ['in', ['geometry-type'], ['literal', ['LineString', 'MultiLineString']]],
+                            paint: {
+                                'line-color': color,
+                                'line-width': 2,
+                                'line-opacity': 0.8
+                            }
+                        });
+                        break;
+                    
+                    case 'Polygon':
+                    case 'MultiPolygon':
+                        this.vectorMap.addLayer({
+                            id: layerId,
+                            type: 'fill',
+                            source: sourceId,
+                            filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
+                            paint: {
+                                'fill-color': color,
+                                'fill-opacity': 0.3,
+                                'fill-outline-color': color
+                            }
+                        });
+                        break;
+                }
+
+                // Store layer reference
+                this.geoJsonLayers.set(layerId, {
+                    sourceId,
+                    visible: true,
+                    geometryType: geomType
+                });
+            });
+        }
+
+        async addLayersToRasterMap(layers) {
+            // Use existing Leaflet implementation
             this.clearAllLayers();
 
             const layerControlsContainer = document.getElementById('layer-controls');
@@ -201,163 +554,82 @@ ob_start();
 
             let validLayersAdded = 0;
 
-            // Add each layer with batch processing for performance
             for (let i = 0; i < layers.length; i++) {
                 const layerData = layers[i];
                 const color = this.colors[i % this.colors.length];
 
                 try {
-                    // Validate layer data first
                     if (!layerData.features || !Array.isArray(layerData.features) || layerData.features.length === 0) {
                         console.warn('Layer has no valid features:', layerData.id || i);
                         continue;
                     }
 
-                    // Create layer with optimized styling
                     const geoJsonLayer = L.geoJSON(layerData, {
                         style: (feature) => this.getFeatureStyle(feature, color),
                         pointToLayer: (feature, latlng) => this.createMarker(feature, latlng, color),
                         onEachFeature: (feature, layer) => this.bindFeaturePopup(feature, layer)
                     });
 
-                    // Only add layer if it has valid features
                     if (geoJsonLayer.getLayers().length > 0) {
                         this.layerGroup.addLayer(geoJsonLayer);
                         this.geoJsonLayers.set(layerData.id || i, geoJsonLayer);
                         validLayersAdded++;
 
-                        // Add layer control
-                        this.addLayerControl(layerData, color);
-                    } else {
-                        console.warn('GeoJSON layer created but has no Leaflet layers:', layerData.id || i);
+                        this.addLayerControl(layerData, color, false); // false for raster map
                     }
 
-                    // Process in batches to avoid blocking UI
                     if (i % 10 === 0) {
                         await this.sleep(10);
                     }
                 } catch (layerError) {
-                    console.error('Error processing layer:', layerData.id || i, layerError);
+                    console.error('Error processing raster layer:', layerData.id || i, layerError);
                 }
             }
 
-            console.log(`Successfully added ${validLayersAdded} layers out of ${layers.length}`);
-
-            // Fit map to show all layers - with safe bounds checking
+            console.log(`Successfully added ${validLayersAdded} raster layers out of ${layers.length}`);
             this.fitMapToLayers();
         }
 
-        fitMapToLayers() {
-            try {
-                // Check if we have any layers in the layer group
-                const layerCount = this.layerGroup.getLayers().length;
-
-                if (layerCount === 0) {
-                    console.log('No layers to fit bounds to, using default view');
-                    this.fallbackToDefaultView();
-                    return;
-                }
-
-                console.log(`Attempting to fit bounds for ${layerCount} layers`);
-
-                // Method 1: Try to get bounds directly from layerGroup
-                try {
-                    const bounds = this.layerGroup.getBounds();
-                    if (bounds && this.isValidBounds(bounds)) {
-                        this.map.fitBounds(bounds, {
-                            padding: [20, 20],
-                            maxZoom: 16
-                        });
-                        console.log('Successfully fitted bounds using layerGroup.getBounds()');
-                        return;
-                    }
-                } catch (boundsError) {
-                    console.warn('layerGroup.getBounds() failed:', boundsError.message);
-                }
-
-                // Method 2: Try to collect bounds from individual layers
-                let validBounds = [];
-                this.layerGroup.eachLayer((layer) => {
-                    try {
-                        if (layer.getBounds && typeof layer.getBounds === 'function') {
-                            const layerBounds = layer.getBounds();
-                            if (layerBounds && this.isValidBounds(layerBounds)) {
-                                validBounds.push(layerBounds);
-                            }
-                        }
-                    } catch (e) {
-                        console.warn('Could not get bounds for individual layer:', e.message);
-                    }
-                });
-
-                if (validBounds.length > 0) {
-                    // Create combined bounds from all valid layer bounds
-                    let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
-
-                    validBounds.forEach(bounds => {
-                        const sw = bounds.getSouthWest();
-                        const ne = bounds.getNorthEast();
-
-                        minLat = Math.min(minLat, sw.lat);
-                        maxLat = Math.max(maxLat, ne.lat);
-                        minLng = Math.min(minLng, sw.lng);
-                        maxLng = Math.max(maxLng, ne.lng);
-                    });
-
-                    const combinedBounds = L.latLngBounds([minLat, minLng], [maxLat, maxLng]);
-
-                    if (this.isValidBounds(combinedBounds)) {
-                        this.map.fitBounds(combinedBounds, {
-                            padding: [20, 20],
-                            maxZoom: 16
-                        });
-                        console.log('Successfully fitted bounds using combined layer bounds');
-                        return;
-                    }
-                }
-
-                // Method 3: Fallback to default view
-                console.log('All bounds calculation methods failed, using fallback');
-                this.fallbackToDefaultView();
-
-            } catch (error) {
-                console.error('Error in fitMapToLayers:', error);
-                this.fallbackToDefaultView();
+        fitVectorMapToLayers() {
+            if (!this.vectorMap || this.geoJsonLayers.size === 0) {
+                return;
             }
+
+            // Simple approach: use current view or default bounds
+            // In a real implementation, you'd calculate bounds from all sources
+            this.vectorMap.fitBounds([
+                [103.140, 5.320], // Southwest
+                [103.160, 5.340]  // Northeast
+            ], {
+                padding: 20
+            });
         }
 
-        isValidBounds(bounds) {
-            if (!bounds) return false;
+        clearVectorLayers() {
+            this.geoJsonLayers.forEach((layerInfo, layerId) => {
+                if (this.vectorMap.getLayer(layerId)) {
+                    this.vectorMap.removeLayer(layerId);
+                }
+                if (this.vectorMap.getSource(layerInfo.sourceId)) {
+                    this.vectorMap.removeSource(layerInfo.sourceId);
+                }
+            });
+            this.geoJsonLayers.clear();
+        }
 
-            try {
-                const sw = bounds.getSouthWest();
-                const ne = bounds.getNorthEast();
-
-                // Check if bounds have valid coordinates
-                if (!sw || !ne) return false;
-
-                const isValid = (
-                    isFinite(sw.lat) && isFinite(sw.lng) &&
-                    isFinite(ne.lat) && isFinite(ne.lng) &&
-                    sw.lat >= -90 && sw.lat <= 90 &&
-                    ne.lat >= -90 && ne.lat <= 90 &&
-                    sw.lng >= -180 && sw.lng <= 180 &&
-                    ne.lng >= -180 && ne.lng <= 180 &&
-                    sw.lat < ne.lat && sw.lng < ne.lng
-                );
-
-                return isValid;
-            } catch (e) {
-                console.warn('Error validating bounds:', e.message);
-                return false;
+        clearAllLayers() {
+            if (this.currentMapType === 'vector') {
+                this.clearVectorLayers();
+            } else if (this.layerGroup) {
+                this.layerGroup.clearLayers();
+                this.geoJsonLayers.clear();
             }
+            
+            document.getElementById('layer-controls').innerHTML = '';
+            this.hideLayerInfo();
         }
 
-        fallbackToDefaultView() {
-            console.log('Using fallback map view');
-            this.map.setView([5.329, 103.146], 14);
-        }
-
+        // Keep existing helper methods for raster map...
         getFeatureStyle(feature, color) {
             const geometryType = feature.geometry.type;
 
@@ -405,14 +677,13 @@ ob_start();
                         <p><strong>Type:</strong> ${feature.properties.type || 'Unknown'}</p>
                         <p><strong>ID:</strong> ${feature.properties.id || 'N/A'}</p>
                         <p><strong>Theme:</strong> ${feature.properties.theme || 'N/A'}</p>
-                        <p class="text-xs text-gray-600 mt-1">${feature.properties.description || 'No description available'}</p>
                     </div>
                 `;
                 layer.bindPopup(popupContent);
             }
         }
 
-        addLayerControl(layerData, color) {
+        addLayerControl(layerData, color, isVector = false) {
             const layerControlsContainer = document.getElementById('layer-controls');
 
             const controlDiv = document.createElement('div');
@@ -424,7 +695,7 @@ ob_start();
             controlDiv.innerHTML = `
                 <input type="checkbox" id="layer-${layerId}" checked data-layer-id="${layerId}">
                 <label for="layer-${layerId}" style="color: ${color}">
-                    ${layerName} (${featureCount} features)
+                    ${layerName} (${featureCount} features) ${isVector ? '[Vector]' : '[Raster]'}
                 </label>
             `;
 
@@ -437,21 +708,56 @@ ob_start();
         }
 
         toggleLayer(layerId, show) {
-            const layer = this.geoJsonLayers.get(layerId);
-            if (layer) {
-                if (show) {
-                    this.layerGroup.addLayer(layer);
-                } else {
-                    this.layerGroup.removeLayer(layer);
+            if (this.currentMapType === 'vector') {
+                // Toggle vector layers
+                this.geoJsonLayers.forEach((layerInfo, fullLayerId) => {
+                    if (fullLayerId.includes(layerId)) {
+                        const visibility = show ? 'visible' : 'none';
+                        if (this.vectorMap.getLayer(fullLayerId)) {
+                            this.vectorMap.setLayoutProperty(fullLayerId, 'visibility', visibility);
+                        }
+                    }
+                });
+            } else {
+                // Toggle raster layers
+                const layer = this.geoJsonLayers.get(layerId);
+                if (layer && this.layerGroup) {
+                    if (show) {
+                        this.layerGroup.addLayer(layer);
+                    } else {
+                        this.layerGroup.removeLayer(layer);
+                    }
                 }
             }
         }
 
-        clearAllLayers() {
-            this.layerGroup.clearLayers();
-            this.geoJsonLayers.clear();
-            document.getElementById('layer-controls').innerHTML = '';
-            this.hideLayerInfo();
+        fitMapToLayers() {
+            if (!this.layerGroup || this.layerGroup.getLayers().length === 0) {
+                return;
+            }
+
+            try {
+                const bounds = this.layerGroup.getBounds();
+                if (bounds && this.isValidBounds(bounds)) {
+                    this.leafletMap.fitBounds(bounds, {
+                        padding: [20, 20],
+                        maxZoom: 16
+                    });
+                }
+            } catch (error) {
+                console.error('Error fitting map to layers:', error);
+            }
+        }
+
+        isValidBounds(bounds) {
+            if (!bounds) return false;
+            try {
+                const sw = bounds.getSouthWest();
+                const ne = bounds.getNorthEast();
+                return sw && ne && isFinite(sw.lat) && isFinite(sw.lng) && isFinite(ne.lat) && isFinite(ne.lng);
+            } catch (e) {
+                return false;
+            }
         }
 
         showGenerationStatus(show) {
@@ -465,7 +771,7 @@ ob_start();
             } else {
                 statusElement.classList.add('hidden');
                 generateBtn.disabled = false;
-                generateBtn.textContent = 'Generate Random';
+                generateBtn.textContent = 'Generate';
             }
         }
 
@@ -487,7 +793,7 @@ ob_start();
 
     // Initialize the map manager when DOM is loaded
     document.addEventListener('DOMContentLoaded', () => {
-        window.geoMapManager = new GeoJSONMapManager();
+        window.vectorMapManager = new VectorMapManager();
     });
 </script>
 

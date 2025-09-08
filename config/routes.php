@@ -1,10 +1,15 @@
 <?php
 
 return [
-    // Tile Routes
-    'GET /tiles/{z}/{x}/{y}' => 'TileController@getTile',
-    'GET /tiles/{z}/{x}/{y}.png' => 'TileController@getTile',
-    'GET /tiles/{z}/{x}/{y}.jpg' => 'TileController@getTile',
+    // Vector Tile Routes Only
+    'GET /tiles/{z}/{x}/{y}.pbf' => 'TileController@getTile',
+    'GET /tiles/{z}/{x}/{y}.mvt' => 'TileController@getTile',
+    'GET /tiles/{z}/{x}/{y}' => 'TileController@getTile', // Default to vector
+
+    // Vector Tile Metadata
+    'GET /tiles.json' => 'TileController@getTilesJson',
+    'GET /style.json' => 'TileController@getStyle',
+    'GET /tiles/{z}/{x}/{y}/info' => 'TileController@getTileInfo',
 
     // Coordinate Conversion Routes
     'GET /convert/latlng-to-tile' => 'CoordinateController@latLngToTile',
@@ -25,7 +30,7 @@ return [
     'GET /filter/tiles' => 'FilterController@filterTiles',
     'POST /filter/apply' => 'FilterController@applyFilter',
 
-    // Outsource Data Routes
+    // External Data Routes
     'GET /external/data' => 'ExternalController@getExternalData',
     'POST /external/sync' => 'ExternalController@syncExternalData',
 
@@ -34,6 +39,6 @@ return [
     'GET /health' => 'InfoController@health',
     'GET /api/info' => 'InfoController@apiInfo',
 
-    // Maps 
-    'GET /maps' => 'MapController@index',
+    // Vector Maps Interface
+    'GET /maps' => 'MapController@vectorMap',
 ];
