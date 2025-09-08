@@ -17,7 +17,7 @@
         </div>
     </nav>
 
-    <main class="container mx-auto mt-8 p-4 flex-grow">
+    <main class="flex-grow flex">
         <?= $content ?? '' ?>
     </main>
 
