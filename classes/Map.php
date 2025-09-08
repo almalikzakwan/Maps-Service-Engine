@@ -1,5 +1,5 @@
 <?php
-// classes/Map.php
+// classes/Map.php - Vector Tiles Only
 declare(strict_types=1);
 
 class Map
@@ -9,23 +9,6 @@ class Map
     public function __construct(array $config)
     {
         $this->config = $config;
-    }
-
-    public function getTile(int $x, int $y, int $z): string
-    {
-        // Check if x,y,z are invalid
-        if ($x < 0 || $y < 0 || $z < 0) {
-            return "Invalid tile coordinates.";
-        }
-
-        // Determine tile URL based on configuration
-        if ($this->config['tile_type'] === 'vector') {
-            $tileUrl = $this->getVectorTileUrl($x, $y, $z);
-        } else {
-            $tileUrl = "https://tile.openstreetmap.org/$z/$x/$y.png";
-        }
-
-        return $tileUrl;
     }
 
     public function getVectorTileUrl(int $x, int $y, int $z): string
@@ -46,13 +29,13 @@ class Map
 
     public function getVectorTileData(int $x, int $y, int $z): ?string
     {
-        if ($x < 0 || $y < 0 || $z < 0) {
-            throw new InvalidArgumentException("Invalid tile coordinates.");
+        if (!$this->isValidTile($x, $y, $z)) {
+            throw new InvalidArgumentException("Invalid tile coordinates: x={$x}, y={$y}, z={$z}");
         }
 
         // Check cache first
         if ($this->config['cache_vector_tiles'] ?? true) {
-            $cachedTile = $this->getCachedTile($x, $y, $z, 'pbf');
+            $cachedTile = $this->getCachedTile($x, $y, $z);
             if ($cachedTile !== null) {
                 return $cachedTile;
             }
@@ -67,56 +50,28 @@ class Map
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_TIMEOUT => 30,
-            CURLOPT_USERAGENT => 'Maps-Service-Engine/2.0-Vector',
+            CURLOPT_USERAGENT => 'Maps-Service-Engine/3.0-Vector-Only',
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_HTTPHEADER => [
                 'Accept: application/x-protobuf',
-                'Accept-Encoding: gzip, deflate'
+                'Accept-Encoding: gzip, deflate',
+                'User-Agent: Maps-Service-Engine/3.0'
             ]
         ]);
 
         $data = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+        $error = curl_error($ch);
         curl_close($ch);
 
         if ($httpCode !== 200 || $data === false) {
+            error_log("Failed to fetch vector tile {$z}/{$x}/{$y}: HTTP {$httpCode}, Error: {$error}");
             return null;
         }
 
         // Cache the tile
         if ($this->config['cache_vector_tiles'] ?? true) {
-            $this->cacheTile($x, $y, $z, $data, 'pbf');
-        }
-
-        return $data;
-    }
-
-    public function getRasterTileData(int $x, int $y, int $z): ?string
-    {
-        // Fallback to raster tiles
-        if ($x < 0 || $y < 0 || $z < 0) {
-            throw new InvalidArgumentException("Invalid tile coordinates.");
-        }
-
-        $tileUrl = "https://tile.openstreetmap.org/$z/$x/$y.png";
-
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL => $tileUrl,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_TIMEOUT => 30,
-            CURLOPT_USERAGENT => 'Maps-Service-Engine/2.0',
-            CURLOPT_SSL_VERIFYPEER => false
-        ]);
-
-        $data = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($httpCode !== 200 || $data === false) {
-            return null;
+            $this->cacheTile($x, $y, $z, $data);
         }
 
         return $data;
@@ -124,28 +79,24 @@ class Map
 
     public function getTileInfo(int $x, int $y, int $z): array
     {
-        $bounds = $this->getTileBounds($x, $y, $z);
-        $tileType = $this->config['tile_type'] ?? 'raster';
+        if (!$this->isValidTile($x, $y, $z)) {
+            throw new InvalidArgumentException("Invalid tile coordinates");
+        }
 
-        $info = [
+        $bounds = $this->getTileBounds($x, $y, $z);
+
+        return [
             'x' => $x,
             'y' => $y,
             'z' => $z,
             'bounds' => $bounds,
-            'size' => 256, // Standard tile size
-            'type' => $tileType
+            'size' => $this->config['tile_size'] ?? 512,
+            'type' => 'vector',
+            'url' => $this->getVectorTileUrl($x, $y, $z),
+            'format' => 'pbf',
+            'layers' => $this->getVectorTileLayers(),
+            'source' => 'OpenMapTiles via MapTiler'
         ];
-
-        if ($tileType === 'vector') {
-            $info['url'] = $this->getVectorTileUrl($x, $y, $z);
-            $info['format'] = 'pbf';
-            $info['layers'] = $this->getVectorTileLayers();
-        } else {
-            $info['url'] = "https://tile.openstreetmap.org/$z/$x/$y.png";
-            $info['format'] = 'png';
-        }
-
-        return $info;
     }
 
     public function getVectorTileLayers(): array
@@ -176,10 +127,15 @@ class Map
         $styleUrl = $this->config['style_json_url'] ?? null;
 
         if ($styleUrl) {
-            // Fetch remote style
+            // Fetch remote style with API key
+            $url = $styleUrl;
+            if (!empty($this->config['maptiler_api_key'])) {
+                $url .= '?key=' . $this->config['maptiler_api_key'];
+            }
+
             $ch = curl_init();
             curl_setopt_array($ch, [
-                CURLOPT_URL => $styleUrl,
+                CURLOPT_URL => $url,
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_FOLLOWLOCATION => true,
                 CURLOPT_TIMEOUT => 10,
@@ -193,25 +149,58 @@ class Map
             curl_close($ch);
 
             if ($httpCode === 200 && $styleData) {
-                return json_decode($styleData, true) ?? $this->getDefaultStyle();
+                $style = json_decode($styleData, true);
+                if ($style && is_array($style)) {
+                    // Update tile URLs to point to our server
+                    $style = $this->updateStyleUrls($style);
+                    return $style;
+                }
             }
         }
 
-        return $this->getDefaultStyle();
+        return $this->getDefaultVectorStyle();
     }
 
-    private function getDefaultStyle(): array
+    private function updateStyleUrls(array $style): array
     {
-        // Basic style for vector tiles
+        $baseUrl = $this->getBaseUrl();
+
+        // Update sources to point to our tile server
+        if (isset($style['sources'])) {
+            foreach ($style['sources'] as $sourceId => &$source) {
+                if (isset($source['type']) && $source['type'] === 'vector') {
+                    if (isset($source['url'])) {
+                        $source['url'] = $baseUrl . '/tiles.json';
+                    }
+                    if (isset($source['tiles'])) {
+                        $source['tiles'] = [$baseUrl . '/tiles/{z}/{x}/{y}.pbf'];
+                    }
+                }
+            }
+        }
+
+        return $style;
+    }
+
+    private function getDefaultVectorStyle(): array
+    {
+        $baseUrl = $this->getBaseUrl();
+
         return [
             "version" => 8,
-            "name" => "Maps Service Engine Style",
+            "name" => "Vector Maps Service Engine",
+            "metadata" => [
+                "maputnik:renderer" => "maplibre",
+                "description" => "Vector-only tile service"
+            ],
             "sources" => [
                 "openmaptiles" => [
                     "type" => "vector",
-                    "url" => "/tiles.json"
+                    "url" => $baseUrl . "/tiles.json"
                 ]
             ],
+            "sprite" => $baseUrl . "/sprites/basic",
+            "glyphs" => $baseUrl . "/fonts/{fontstack}/{range}.pbf",
             "layers" => [
                 [
                     "id" => "background",
@@ -223,16 +212,58 @@ class Map
                     "type" => "fill",
                     "source" => "openmaptiles",
                     "source-layer" => "water",
-                    "paint" => ["fill-color" => "#a0c8f0"]
+                    "paint" => [
+                        "fill-color" => "#a0c8f0",
+                        "fill-opacity" => 1
+                    ]
                 ],
                 [
-                    "id" => "roads",
+                    "id" => "landcover",
+                    "type" => "fill",
+                    "source" => "openmaptiles",
+                    "source-layer" => "landcover",
+                    "filter" => ["==", "class", "grass"],
+                    "paint" => ["fill-color" => "#d8e8c8"]
+                ],
+                [
+                    "id" => "landuse-residential",
+                    "type" => "fill",
+                    "source" => "openmaptiles",
+                    "source-layer" => "landuse",
+                    "filter" => ["==", "class", "residential"],
+                    "paint" => ["fill-color" => "#f0f0f0"]
+                ],
+                [
+                    "id" => "roads-highway",
                     "type" => "line",
                     "source" => "openmaptiles",
                     "source-layer" => "transportation",
+                    "filter" => ["==", "class", "motorway"],
                     "paint" => [
-                        "line-color" => "#ffffff",
-                        "line-width" => ["interpolate", ["linear"], ["zoom"], 8, 1, 14, 4]
+                        "line-color" => "#fc8",
+                        "line-width" => ["interpolate", ["linear"], ["zoom"], 8, 2, 14, 8]
+                    ]
+                ],
+                [
+                    "id" => "roads-primary",
+                    "type" => "line",
+                    "source" => "openmaptiles",
+                    "source-layer" => "transportation",
+                    "filter" => ["==", "class", "primary"],
+                    "paint" => [
+                        "line-color" => "#fea",
+                        "line-width" => ["interpolate", ["linear"], ["zoom"], 8, 1, 14, 6]
+                    ]
+                ],
+                [
+                    "id" => "roads-secondary",
+                    "type" => "line",
+                    "source" => "openmaptiles",
+                    "source-layer" => "transportation",
+                    "filter" => ["in", "class", "secondary", "tertiary"],
+                    "paint" => [
+                        "line-color" => "#fff",
+                        "line-width" => ["interpolate", ["linear"], ["zoom"], 8, 0.5, 14, 4]
                     ]
                 ],
                 [
@@ -240,19 +271,57 @@ class Map
                     "type" => "fill",
                     "source" => "openmaptiles",
                     "source-layer" => "building",
+                    "minzoom" => 13,
                     "paint" => [
                         "fill-color" => "#e0e0e0",
-                        "fill-outline-color" => "#cccccc"
+                        "fill-outline-color" => "#cccccc",
+                        "fill-opacity" => 0.8
+                    ]
+                ],
+                [
+                    "id" => "place-labels",
+                    "type" => "symbol",
+                    "source" => "openmaptiles",
+                    "source-layer" => "place",
+                    "filter" => ["in", "class", "city", "town", "village"],
+                    "layout" => [
+                        "text-field" => ["get", "name"],
+                        "text-font" => ["Open Sans Regular"],
+                        "text-size" => 12,
+                        "text-transform" => "uppercase"
+                    ],
+                    "paint" => [
+                        "text-color" => "#333333",
+                        "text-halo-color" => "#ffffff",
+                        "text-halo-width" => 1
+                    ]
+                ],
+                [
+                    "id" => "road-labels",
+                    "type" => "symbol",
+                    "source" => "openmaptiles",
+                    "source-layer" => "transportation_name",
+                    "filter" => ["in", "class", "motorway", "primary", "secondary"],
+                    "layout" => [
+                        "text-field" => ["get", "name"],
+                        "text-font" => ["Open Sans Regular"],
+                        "text-size" => 10,
+                        "symbol-placement" => "line"
+                    ],
+                    "paint" => [
+                        "text-color" => "#666666",
+                        "text-halo-color" => "#ffffff",
+                        "text-halo-width" => 1
                     ]
                 ]
             ]
         ];
     }
 
-    private function getCachedTile(int $x, int $y, int $z, string $format): ?string
+    private function getCachedTile(int $x, int $y, int $z): ?string
     {
-        $cacheDir = $this->config['tile_cache_dir'] ?? '/tmp/tile_cache/';
-        $cachePath = $cacheDir . "vector/$z/$x/$y.$format";
+        $cacheDir = $this->config['tile_cache_dir'] ?? '/tmp/tile_cache/vector/';
+        $cachePath = $cacheDir . "$z/$x/$y.pbf";
 
         if (file_exists($cachePath)) {
             $cacheTime = filemtime($cachePath);
@@ -266,19 +335,26 @@ class Map
         return null;
     }
 
-    private function cacheTile(int $x, int $y, int $z, string $data, string $format): void
+    private function cacheTile(int $x, int $y, int $z, string $data): void
     {
-        $cacheDir = $this->config['tile_cache_dir'] ?? '/tmp/tile_cache/';
-        $cachePath = $cacheDir . "vector/$z/$x/";
+        $cacheDir = $this->config['tile_cache_dir'] ?? '/tmp/tile_cache/vector/';
+        $cachePath = $cacheDir . "$z/$x/";
 
         if (!is_dir($cachePath)) {
             mkdir($cachePath, 0755, true);
         }
 
-        file_put_contents($cachePath . "$y.$format", $data);
+        file_put_contents($cachePath . "$y.pbf", $data);
     }
 
-    // Keep existing coordinate conversion methods...
+    private function getBaseUrl(): string
+    {
+        $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        return $protocol . '://' . $host;
+    }
+
+    // Coordinate conversion methods remain the same
     public function convertCoordinatesToTiles(float $lat, float $lon, int $zoom): array
     {
         $latRad = deg2rad($lat);
@@ -341,8 +417,10 @@ class Map
             return false;
         }
 
-        $maxZoom = $this->config['max_zoom'] ?? 18;
-        if ($z > $maxZoom) {
+        $maxZoom = $this->config['max_zoom'] ?? 14;
+        $minZoom = $this->config['min_zoom'] ?? 0;
+
+        if ($z > $maxZoom || $z < $minZoom) {
             return false;
         }
 

@@ -1,14 +1,10 @@
 <?php
 
 return [
-    // Vector Tile Routes
+    // Vector Tile Routes Only
     'GET /tiles/{z}/{x}/{y}.pbf' => 'TileController@getTile',
     'GET /tiles/{z}/{x}/{y}.mvt' => 'TileController@getTile',
-
-    // Raster Tile Routes (fallback)
-    'GET /tiles/{z}/{x}/{y}' => 'TileController@getTile',
-    'GET /tiles/{z}/{x}/{y}.png' => 'TileController@getTile',
-    'GET /tiles/{z}/{x}/{y}.jpg' => 'TileController@getTile',
+    'GET /tiles/{z}/{x}/{y}' => 'TileController@getTile', // Default to vector
 
     // Vector Tile Metadata
     'GET /tiles.json' => 'TileController@getTilesJson',
@@ -43,7 +39,6 @@ return [
     'GET /health' => 'InfoController@health',
     'GET /api/info' => 'InfoController@apiInfo',
 
-    // Maps Interface
-    'GET /maps' => 'MapController@index',
-    'GET /maps/vector' => 'MapController@vectorMap',
+    // Vector Maps Interface
+    'GET /maps' => 'MapController@vectorMap',
 ];
