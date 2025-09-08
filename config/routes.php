@@ -28,4 +28,7 @@ return [
     'GET /' => 'InfoController@index',
     'GET /health' => 'InfoController@health',
     'GET /api/info' => 'InfoController@apiInfo',
+
+    // Maps 
+    'GET /maps' => 'MapController@index',
 ];
