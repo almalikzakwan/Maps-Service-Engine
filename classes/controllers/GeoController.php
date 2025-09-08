@@ -77,6 +77,12 @@ class GeoController extends BaseController
             return;
         }
 
+        // Validate bounds
+        if (!$this->validateBounds($bounds)) {
+            $this->errorResponse('Invalid bounds provided', 400);
+            return;
+        }
+
         try {
             $layers = $this->generateRealisticLayers($featureCount, $layerCount, $bounds);
 
@@ -91,6 +97,7 @@ class GeoController extends BaseController
             ], 'Realistic GeoJSON layers generated successfully');
 
         } catch (Exception $e) {
+            error_log('GeoController Error: ' . $e->getMessage());
             $this->errorResponse('Error generating GeoJSON: ' . $e->getMessage(), 500);
         }
     }
@@ -105,6 +112,11 @@ class GeoController extends BaseController
 
         if ($geometryType && !in_array($geometryType, $this->geometryTypes)) {
             $this->errorResponse('Invalid geometry type. Allowed: ' . implode(', ', $this->geometryTypes), 400);
+            return;
+        }
+
+        if (!$this->validateBounds($bounds)) {
+            $this->errorResponse('Invalid bounds provided', 400);
             return;
         }
 
@@ -123,6 +135,23 @@ class GeoController extends BaseController
         } catch (Exception $e) {
             $this->errorResponse('Error generating layer: ' . $e->getMessage(), 500);
         }
+    }
+
+    private function validateBounds(array $bounds): bool
+    {
+        $required = ['north', 'south', 'east', 'west'];
+        foreach ($required as $key) {
+            if (!isset($bounds[$key]) || !is_numeric($bounds[$key])) {
+                return false;
+            }
+        }
+
+        return (
+            $bounds['north'] > $bounds['south'] &&
+            $bounds['east'] > $bounds['west'] &&
+            $bounds['north'] <= 90 && $bounds['south'] >= -90 &&
+            $bounds['east'] <= 180 && $bounds['west'] >= -180
+        );
     }
 
     private function generateRealisticLayers(int $totalFeatures, int $layerCount, array $bounds): array
@@ -157,12 +186,17 @@ class GeoController extends BaseController
             $layerName = $themeKeys[$i % count($themeKeys)];
             $theme = $layerThemes[$layerName];
 
-            $layer = $this->createThemedGeoJSONLayer($currentFeatureCount, $bounds, $theme);
-            $layer['name'] = $layerName;
-            $layer['id'] = $i + 1;
-            $layer['theme'] = $theme;
+            try {
+                $layer = $this->createThemedGeoJSONLayer($currentFeatureCount, $bounds, $theme);
+                $layer['name'] = $layerName;
+                $layer['id'] = $i + 1;
+                $layer['theme'] = $theme;
 
-            $layers[] = $layer;
+                $layers[] = $layer;
+            } catch (Exception $e) {
+                error_log("Error creating layer {$i}: " . $e->getMessage());
+                // Continue with other layers
+            }
         }
 
         return $layers;
@@ -176,17 +210,26 @@ class GeoController extends BaseController
     private function createThemedGeoJSONLayer(int $featureCount, array $bounds, string $theme, ?string $forceType = null): array
     {
         $features = [];
+        $successfulFeatures = 0;
 
-        for ($i = 0; $i < $featureCount; $i++) {
-            $feature = $this->createRealisticFeature($theme, $bounds, $i + 1, $forceType);
-            $features[] = $feature;
+        for ($i = 0; $i < $featureCount && $successfulFeatures < $featureCount; $i++) {
+            try {
+                $feature = $this->createRealisticFeature($theme, $bounds, $i + 1, $forceType);
+                if ($feature) {
+                    $features[] = $feature;
+                    $successfulFeatures++;
+                }
+            } catch (Exception $e) {
+                error_log("Error creating feature {$i}: " . $e->getMessage());
+                // Continue with next feature
+            }
         }
 
         return [
             'type' => 'FeatureCollection',
             'features' => $features,
             'properties' => [
-                'featureCount' => $featureCount,
+                'featureCount' => count($features),
                 'bounds' => $bounds,
                 'theme' => $theme,
                 'createdAt' => date('c')
@@ -194,29 +237,38 @@ class GeoController extends BaseController
         ];
     }
 
-    private function createRealisticFeature(string $theme, array $bounds, int $id, ?string $forceType = null): array
+    private function createRealisticFeature(string $theme, array $bounds, int $id, ?string $forceType = null): ?array
     {
-        // Determine geometry type and feature properties based on theme
-        if ($forceType) {
-            $geometryType = $forceType;
-            $featureData = $this->getFeatureDataForType($geometryType, $theme);
-        } else {
-            $featureData = $this->getFeatureDataForTheme($theme);
-            $geometryType = $featureData['geometry'];
-        }
+        try {
+            // Determine geometry type and feature properties based on theme
+            if ($forceType) {
+                $geometryType = $forceType;
+                $featureData = $this->getFeatureDataForType($geometryType, $theme);
+            } else {
+                $featureData = $this->getFeatureDataForTheme($theme);
+                $geometryType = $featureData['geometry'];
+            }
 
-        $geometry = $this->generateRealisticGeometry($geometryType, $bounds, $featureData);
+            $geometry = $this->generateRealisticGeometry($geometryType, $bounds, $featureData);
 
-        return [
-            'type' => 'Feature',
-            'id' => $id,
-            'geometry' => $geometry,
-            'properties' => array_merge($featureData['properties'], [
+            if (!$geometry) {
+                return null;
+            }
+
+            return [
+                'type' => 'Feature',
                 'id' => $id,
-                'theme' => $theme,
-                'createdAt' => date('c')
-            ])
-        ];
+                'geometry' => $geometry,
+                'properties' => array_merge($featureData['properties'], [
+                    'id' => $id,
+                    'theme' => $theme,
+                    'createdAt' => date('c')
+                ])
+            ];
+        } catch (Exception $e) {
+            error_log("Error in createRealisticFeature: " . $e->getMessage());
+            return null;
+        }
     }
 
     private function getFeatureDataForTheme(string $theme): array
@@ -353,31 +405,37 @@ class GeoController extends BaseController
         return $baseData;
     }
 
-    private function generateRealisticGeometry(string $type, array $bounds, array $featureData): array
+    private function generateRealisticGeometry(string $type, array $bounds, array $featureData): ?array
     {
-        switch ($type) {
-            case 'LineString':
-                return $this->generateRealisticRoad($bounds, $featureData);
+        try {
+            switch ($type) {
+                case 'LineString':
+                    return $this->generateRealisticRoad($bounds, $featureData);
 
-            case 'MultiLineString':
-                return $this->generateRealisticMultiRoad($bounds, $featureData);
+                case 'MultiLineString':
+                    return $this->generateRealisticMultiRoad($bounds, $featureData);
 
-            case 'Polygon':
-                if (
-                    strpos($featureData['properties']['type'], 'building') !== false ||
-                    in_array($featureData['properties']['type'], ['residential', 'commercial', 'industrial'])
-                ) {
-                    return $this->generateRealisticBuilding($bounds, $featureData);
-                } else {
-                    return $this->generateRealisticArea($bounds, $featureData);
-                }
+                case 'Polygon':
+                    if (
+                        strpos($featureData['properties']['type'], 'building') !== false ||
+                        in_array($featureData['properties']['type'], ['residential', 'commercial', 'industrial'])
+                    ) {
+                        return $this->generateRealisticBuilding($bounds, $featureData);
+                    } else {
+                        return $this->generateRealisticArea($bounds, $featureData);
+                    }
 
-            default:
-                throw new Exception("Unsupported geometry type: {$type}");
+                default:
+                    error_log("Unsupported geometry type: {$type}");
+                    return null;
+            }
+        } catch (Exception $e) {
+            error_log("Error generating geometry: " . $e->getMessage());
+            return null;
         }
     }
 
-    private function generateRealisticRoad(array $bounds, array $featureData): array
+    private function generateRealisticRoad(array $bounds, array $featureData): ?array
     {
         $roadType = $featureData['properties']['type'];
         $segments = $this->getRoadSegmentCount($roadType);
@@ -404,8 +462,27 @@ class GeoController extends BaseController
             $newLat = max($bounds['south'], min($bounds['north'], $newLat));
             $newLng = max($bounds['west'], min($bounds['east'], $newLng));
 
+            // Additional clamping to global coordinate limits
+            $newLat = max(-90, min(90, $newLat));
+            $newLng = max(-180, min(180, $newLng));
+
             $currentPoint = [round($newLng, 6), round($newLat, 6)];
             $coordinates[] = $currentPoint;
+        }
+
+        // Basic validation
+        if (count($coordinates) < 2) {
+            error_log("Generated road has too few coordinates: " . count($coordinates));
+            return $this->generateFallbackRoad($bounds);
+        }
+
+        // Check first and last coordinate validity
+        $firstCoord = $coordinates[0];
+        $lastCoord = $coordinates[count($coordinates) - 1];
+
+        if (!$this->isValidCoordinatePair($firstCoord) || !$this->isValidCoordinatePair($lastCoord)) {
+            error_log("Invalid coordinate pairs in road geometry");
+            return $this->generateFallbackRoad($bounds);
         }
 
         return [
@@ -414,14 +491,20 @@ class GeoController extends BaseController
         ];
     }
 
-    private function generateRealisticMultiRoad(array $bounds, array $featureData): array
+    private function generateRealisticMultiRoad(array $bounds, array $featureData): ?array
     {
         $roadCount = rand(2, 4);
         $coordinates = [];
 
         for ($i = 0; $i < $roadCount; $i++) {
             $roadGeometry = $this->generateRealisticRoad($bounds, $featureData);
-            $coordinates[] = $roadGeometry['coordinates'];
+            if ($roadGeometry && isset($roadGeometry['coordinates'])) {
+                $coordinates[] = $roadGeometry['coordinates'];
+            }
+        }
+
+        if (empty($coordinates)) {
+            return $this->generateFallbackRoad($bounds);
         }
 
         return [
@@ -430,7 +513,7 @@ class GeoController extends BaseController
         ];
     }
 
-    private function generateRealisticBuilding(array $bounds, array $featureData): array
+    private function generateRealisticBuilding(array $bounds, array $featureData): ?array
     {
         $buildingType = $featureData['properties']['type'];
         $sizeRange = $this->buildingTypes[$buildingType]['size'] ?? [0.0001, 0.0003];
@@ -449,12 +532,31 @@ class GeoController extends BaseController
             [$center[0] - $width / 2, $center[1] - $height / 2] // Close the polygon
         ];
 
-        // Add slight irregularities for realism
+        // Add slight irregularities for realism and validate each coordinate
         foreach ($baseCoords as $coord) {
             $irregularity = 0.00001; // Very small variation
             $newLng = $coord[0] + (rand(-100, 100) / 100) * $irregularity;
             $newLat = $coord[1] + (rand(-100, 100) / 100) * $irregularity;
-            $coordinates[] = [round($newLng, 6), round($newLat, 6)];
+
+            // Ensure coordinates stay within bounds
+            $newLng = max($bounds['west'], min($bounds['east'], $newLng));
+            $newLat = max($bounds['south'], min($bounds['north'], $newLat));
+
+            // Global coordinate validation
+            $newLng = max(-180, min(180, $newLng));
+            $newLat = max(-90, min(90, $newLat));
+
+            $finalCoord = [round($newLng, 6), round($newLat, 6)];
+
+            if ($this->isValidCoordinatePair($finalCoord)) {
+                $coordinates[] = $finalCoord;
+            }
+        }
+
+        // Ensure we have enough coordinates for a valid polygon
+        if (count($coordinates) < 4) {
+            error_log("Building polygon has insufficient coordinates, generating fallback");
+            return $this->generateFallbackBuilding($bounds);
         }
 
         return [
@@ -463,7 +565,7 @@ class GeoController extends BaseController
         ];
     }
 
-    private function generateRealisticArea(array $bounds, array $featureData): array
+    private function generateRealisticArea(array $bounds, array $featureData): ?array
     {
         $areaType = $featureData['properties']['type'];
         $center = $this->generateRandomPoint($bounds);
@@ -483,7 +585,18 @@ class GeoController extends BaseController
             $lng = $center[0] + ($currentRadius * cos($angle));
             $lat = $center[1] + ($currentRadius * sin($angle));
 
-            $coordinates[] = [round($lng, 6), round($lat, 6)];
+            // Keep within bounds
+            $lng = max($bounds['west'], min($bounds['east'], $lng));
+            $lat = max($bounds['south'], min($bounds['north'], $lat));
+
+            $coord = [round($lng, 6), round($lat, 6)];
+            if ($this->isValidCoordinatePair($coord)) {
+                $coordinates[] = $coord;
+            }
+        }
+
+        if (count($coordinates) < 4) {
+            return $this->generateFallbackBuilding($bounds);
         }
 
         return [
@@ -639,15 +752,75 @@ class GeoController extends BaseController
 
     private function generateRandomPoint(array $bounds): array
     {
+        // Ensure bounds are valid
+        if (!isset($bounds['west'], $bounds['east'], $bounds['north'], $bounds['south'])) {
+            error_log('Invalid bounds provided, using default');
+            $bounds = $this->getDefaultBounds();
+        }
+
+        // Ensure logical bounds (west < east, south < north)
+        if ($bounds['west'] >= $bounds['east'] || $bounds['south'] >= $bounds['north']) {
+            error_log('Illogical bounds provided, using default');
+            $bounds = $this->getDefaultBounds();
+        }
+
         $lng = $bounds['west'] + (($bounds['east'] - $bounds['west']) * (rand(0, 10000) / 10000));
         $lat = $bounds['south'] + (($bounds['north'] - $bounds['south']) * (rand(0, 10000) / 10000));
+
+        // Clamp to valid coordinate ranges
+        $lng = max(-180, min(180, $lng));
+        $lat = max(-90, min(90, $lat));
 
         return [round($lng, 6), round($lat, 6)];
     }
 
-    private function generateRandomColor(): string
+    private function isValidCoordinatePair(array $coord): bool
     {
-        return sprintf('#%06X', rand(0, 0xFFFFFF));
+        if (!is_array($coord) || count($coord) < 2) {
+            return false;
+        }
+
+        $lng = $coord[0];
+        $lat = $coord[1];
+
+        return (
+            is_numeric($lng) && is_numeric($lat) &&
+            is_finite($lng) && is_finite($lat) &&
+            $lng >= -180 && $lng <= 180 &&
+            $lat >= -90 && $lat <= 90
+        );
+    }
+
+    private function generateFallbackRoad(array $bounds): array
+    {
+        // Generate simple 2-point road as fallback
+        $point1 = $this->generateRandomPoint($bounds);
+        $point2 = $this->generateRandomPoint($bounds);
+
+        return [
+            'type' => 'LineString',
+            'coordinates' => [$point1, $point2]
+        ];
+    }
+
+    private function generateFallbackBuilding(array $bounds): array
+    {
+        // Generate simple square building as fallback
+        $center = $this->generateRandomPoint($bounds);
+        $size = 0.0002; // Small fixed size
+
+        $coordinates = [
+            [$center[0] - $size, $center[1] - $size],
+            [$center[0] + $size, $center[1] - $size],
+            [$center[0] + $size, $center[1] + $size],
+            [$center[0] - $size, $center[1] + $size],
+            [$center[0] - $size, $center[1] - $size]
+        ];
+
+        return [
+            'type' => 'Polygon',
+            'coordinates' => [$coordinates]
+        ];
     }
 
     private function getDefaultBounds(): array
