@@ -10,6 +10,11 @@ return [
     'GET /convert/latlng-to-tile' => 'CoordinateController@latLngToTile',
     'GET /convert/tile-to-latlng' => 'CoordinateController@tileToLatLng',
 
+    // GeoJSON Generation Routes
+    'POST /geo/generate/layers' => 'GeoController@generateRandomFeatures',
+    'POST /geo/generate/layer' => 'GeoController@generateSingleLayer',
+    'GET /geo/stats' => 'GeoController@getFeatureStats',
+
     // Data Routes
     'GET /data/properties' => 'DataController@getProperties',
     'POST /data/properties' => 'DataController@addProperty',
