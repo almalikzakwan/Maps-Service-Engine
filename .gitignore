@@ -1,1 +1,40 @@
-template/*
+# Existing ignores
+template
+
+# Environment files - NEVER commit these
+.env
+.env.local
+.env.development
+.env.production
+.env.backup
+
+# Cache and temporary files
+/tmp/*
+/cache/*
+/logs/*
+/storage/*
+tile_cache/*
+
+# Dependencies (if using Composer in future)
+/vendor/
+composer.lock
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# PHP specific
+*.log
+error_log
